@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Film, ArrowLeft, Camera, Check, RefreshCw, Download, AlertCircle, Sparkles } from 'lucide-react';
+import { Film, ArrowLeft, Camera, Check, RefreshCw, Download, AlertCircle } from 'lucide-react';
 import { MOCK_TEMPLATES } from '@/lib/mockData';
 import { Template } from '@/lib/types';
 import { savePhoto, StoredPhoto } from '@/lib/photoStorage';
+import { useCameraCapture } from '@/lib/cameraHelper';
 
 export default function PhotoboothPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(MOCK_TEMPLATES[0]);
@@ -18,79 +19,21 @@ export default function PhotoboothPage() {
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [permissionError, setPermissionError] = useState(false);
-  const [initializingCamera, setInitializingCamera] = useState(false);
+  const {
+    videoRef,
+    cameraReady,
+    initializingCamera,
+    initializeCamera,
+    startCountdownAndCapture,
+    generatePhotostrip,
+    stopCamera,
+  } = useCameraCapture();
 
-  // Stop camera tracks cleanly
-  const stopCameraTracks = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  };
-
-  // Initialize Camera strictly when entering the shooting step
-  const initializeCamera = async () => {
-    setInitializingCamera(true);
-    setPermissionError(false);
-    setCameraReady(false);
-
-    stopCameraTracks();
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
-
-      mediaStreamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try {
-          await videoRef.current.play();
-        } catch (e) {
-          console.warn('Auto-play blocked or failed:', e);
-        }
-
-        // Wait until video metadata and dimensions are fully ready
-        const checkVideoReady = () => {
-          const video = videoRef.current;
-          if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
-            setCameraReady(true);
-            setInitializingCamera(false);
-            // Once camera is ready and preview is showing, start the 4-shot countdown sequence
-            startCountdownAndCapture(0, []);
-          } else {
-            setTimeout(checkVideoReady, 100);
-          }
-        };
-
-        checkVideoReady();
-      } else {
-        setInitializingCamera(false);
-      }
-    } catch (err) {
-      console.error('getUserMedia error:', err);
-      setPermissionError(true);
-      setInitializingCamera(false);
-      setErrorMessage('We couldn’t access your camera. Please check camera permissions and try again.');
-      setStep('error');
-    }
-  };
-
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopCameraTracks();
+      stopCamera();
     };
-  }, []);
+  }, [stopCamera]);
 
   const handleStartShooting = (template: Template) => {
     setSelectedTemplate(template);
@@ -99,202 +42,49 @@ export default function PhotoboothPage() {
     setSavedSuccess(false);
     setFinalPhotostripUrl(null);
     setFinalPhotostripBlob(null);
-    setCameraReady(false);
 
-    // Initialize camera now that we are in the shooting step
-    initializeCamera();
+    initializeCamera().then(() => {
+      // Trigger sequence once camera is ready via hook
+    });
   };
 
-  const startCountdownAndCapture = (shotIdx: number, existingShots: string[]) => {
-    if (shotIdx >= 4) {
-      stopCameraTracks();
-      if (existingShots.length === 4) {
-        generatePhotostrip(existingShots);
-      } else {
-        setErrorMessage('We could not capture all 4 shots from your camera. Please try again.');
-        setStep('error');
-      }
-      return;
+  // Trigger sequence when camera becomes ready in shooting step
+  useEffect(() => {
+    if (step === 'shooting' && cameraReady) {
+      startCountdownAndCapture(
+        0,
+        [],
+        () => {
+          setCurrentShotIndex((prev) => prev + 1);
+        },
+        (shots) => {
+          stopCamera();
+          generatePhotostrip(
+            shots,
+            selectedTemplate.name,
+            (blob, url) => {
+              setFinalPhotostripBlob(blob);
+              setFinalPhotostripUrl(url);
+              setStep('preview');
+            },
+            (msg) => {
+              setErrorMessage(msg);
+              setStep('error');
+            }
+          );
+        },
+        (msg) => {
+          stopCamera();
+          setErrorMessage(msg);
+          setStep('error');
+        },
+        (count) => {
+          setCountdown(count);
+        },
+        4
+      );
     }
-
-    setCurrentShotIndex(shotIdx);
-    setCountdown(3);
-
-    let currentCount = 3;
-    const timer = setInterval(() => {
-      currentCount -= 1;
-      if (currentCount > 0) {
-        setCountdown(currentCount);
-      } else {
-        clearInterval(timer);
-        setCountdown(null);
-        takeShotCapture(shotIdx, existingShots);
-      }
-    }, 1000);
-  };
-
-  const takeShotCapture = (shotIdx: number, existingShots: string[]) => {
-    const video = videoRef.current;
-
-    if (
-      !video ||
-      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-      !video.videoWidth ||
-      !video.videoHeight
-    ) {
-      console.error('Camera video element not ready at capture time:', {
-        hasVideo: !!video,
-        readyState: video?.readyState,
-        width: video?.videoWidth,
-        height: video?.videoHeight,
-      });
-      stopCameraTracks();
-      setErrorMessage('We couldn’t capture this shot. Your camera feed was interrupted. Please try again.');
-      setStep('error');
-      return;
-    }
-
-    const vWidth = video.videoWidth;
-    const vHeight = video.videoHeight;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = vWidth;
-    canvas.height = vHeight;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      stopCameraTracks();
-      setErrorMessage('Failed to initialize canvas context for photo capture.');
-      setStep('error');
-      return;
-    }
-
-    ctx.drawImage(video, 0, 0, vWidth, vHeight);
-    const shotDataUrl = canvas.toDataURL('image/png');
-
-    if (!shotDataUrl || shotDataUrl.length < 100) {
-      stopCameraTracks();
-      setErrorMessage('Captured shot data was empty or invalid.');
-      setStep('error');
-      return;
-    }
-
-    const updatedShots = [...existingShots, shotDataUrl];
-
-    setTimeout(() => {
-      startCountdownAndCapture(shotIdx + 1, updatedShots);
-    }, 800);
-  };
-
-  const generatePhotostrip = async (shots: string[]) => {
-    if (shots.length !== 4) {
-      setErrorMessage('Invalid number of captured shots for photostrip generation.');
-      setStep('error');
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    const width = 600;
-    const padding = 40;
-    const headerHeight = 110;
-    const footerHeight = 70;
-    const photoWidth = width - padding * 2; // 520px wide
-    const photoHeight = 390; // 4:3 aspect ratio (520 * 3/4 = 390)
-    const gap = 25;
-
-    const totalHeight = headerHeight + (photoHeight * 4) + (gap * 3) + footerHeight;
-    canvas.width = width;
-    canvas.height = totalHeight;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      setErrorMessage('Failed to initialize photostrip canvas context.');
-      setStep('error');
-      return;
-    }
-
-    // Background styling based on template
-    let bgColor = '#FFFDF5';
-    if (selectedTemplate.id === 't2') bgColor = '#EAF5EA';
-    if (selectedTemplate.id === 't3') bgColor = '#FFFDF5';
-    if (selectedTemplate.id === 't4') bgColor = '#A8D3A8';
-
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, width, totalHeight);
-
-    // Decorative Header Branding
-    ctx.fillStyle = '#24652A';
-    ctx.font = '900 24px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('VIRTUU BOOTH', width / 2, 55);
-
-    ctx.font = '700 13px system-ui, sans-serif';
-    ctx.fillStyle = '#68B96B';
-    const dateStr = new Date().toLocaleDateString();
-    ctx.fillText(`• ${dateStr} • ${selectedTemplate.name} •`, width / 2, 85);
-
-    let startY = headerHeight;
-
-    for (let i = 0; i < shots.length; i++) {
-      await new Promise<void>((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          ctx.save();
-          ctx.fillStyle = '#FFFFFF';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
-          ctx.shadowBlur = 12;
-          ctx.shadowOffsetY = 4;
-          ctx.beginPath();
-          ctx.roundRect(padding - 8, startY - 8, photoWidth + 16, photoHeight + 16, 16);
-          ctx.fill();
-          ctx.restore();
-
-          const sWidth = img.naturalWidth || img.width;
-          const sHeight = img.naturalHeight || img.height;
-          const sAspect = sWidth / sHeight;
-          const targetAspect = photoWidth / photoHeight;
-
-          let sx = 0, sy = 0, sw = sWidth, sh = sHeight;
-
-          if (sAspect > targetAspect) {
-            sw = sHeight * targetAspect;
-            sx = (sWidth - sw) / 2;
-          } else {
-            sh = sWidth / targetAspect;
-            sy = (sHeight - sh) / 2;
-          }
-
-          ctx.drawImage(img, sx, sy, sw, sh, padding, startY, photoWidth, photoHeight);
-
-          startY += photoHeight + gap;
-          resolve();
-        };
-        img.onerror = (err) => {
-          console.error('Failed to load captured shot image for canvas:', err);
-          reject(err);
-        };
-        img.src = shots[i];
-      }).catch(() => {});
-    }
-
-    // Footer Branding
-    ctx.fillStyle = '#24652A';
-    ctx.font = 'bold 13px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('#makeMomentsNotJustPhotos ✨', width / 2, totalHeight - 30);
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        setFinalPhotostripBlob(blob);
-        setFinalPhotostripUrl(URL.createObjectURL(blob));
-        setStep('preview');
-      } else {
-        setErrorMessage('Failed to generate final photostrip image blob.');
-        setStep('error');
-      }
-    }, 'image/png');
-  };
+  }, [step, cameraReady]);
 
   const handleSaveToMemories = async () => {
     if (!finalPhotostripBlob) return;
@@ -318,7 +108,7 @@ export default function PhotoboothPage() {
   };
 
   const handleRetryCamera = () => {
-    stopCameraTracks();
+    stopCamera();
     setStep('shooting');
     initializeCamera();
   };
@@ -331,7 +121,7 @@ export default function PhotoboothPage() {
       <div className="flex items-center justify-between">
         <Link
           href="/home"
-          onClick={stopCameraTracks}
+          onClick={stopCamera}
           className="inline-flex items-center gap-2 text-sm font-bold text-[#24652A] hover:text-[#68B96B] transition-colors bg-[#EAF5EA] px-4 py-2 rounded-2xl border border-[#A8D3A8]/50 shadow-xs"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -391,7 +181,7 @@ export default function PhotoboothPage() {
         <div className="max-w-2xl mx-auto bg-[#EAF5EA]/70 p-8 rounded-[2.5rem] border-2 border-[#A8D3A8]/60 shadow-xl space-y-8 text-center">
           <div className="space-y-2">
             <span className="text-xs font-black uppercase tracking-wider text-[#24652A] bg-[#FFE99A] px-4 py-1 rounded-full shadow-xs">
-              {!cameraReady ? 'Initializing Camera...' : `Shot ${currentShotIndex + 1} / 4`}
+              {!cameraReady ? 'Initializing Camera...' : `Shot ${Math.min(currentShotIndex + 1, 4)} / 4`}
             </span>
             <h2 className="text-3xl font-black text-[#185522]">
               {!cameraReady ? 'getting ready... 🎥' : 'strike a pose! 📸'}
@@ -401,7 +191,6 @@ export default function PhotoboothPage() {
             </p>
           </div>
 
-          {/* Camera Viewfinder with Countdown overlay */}
           <div className="max-w-md mx-auto aspect-[4/3] rounded-[2rem] overflow-hidden bg-[#24652A] relative shadow-2xl flex items-center justify-center border-4 border-[#A8D3A8]">
             <video
               ref={videoRef}
@@ -418,7 +207,6 @@ export default function PhotoboothPage() {
               </div>
             )}
 
-            {/* Countdown Overlay */}
             {cameraReady && countdown !== null && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-xs">
                 <span className="text-8xl font-black text-[#FFFDF5] animate-pulse drop-shadow-lg">
@@ -467,7 +255,7 @@ export default function PhotoboothPage() {
             </button>
             <button
               onClick={() => {
-                stopCameraTracks();
+                stopCamera();
                 setStep('choose-template');
               }}
               className="w-full py-3 rounded-2xl bg-[#EAF5EA] text-[#24652A] font-bold text-sm hover:bg-[#A8D3A8]/40 transition-all"
@@ -488,7 +276,6 @@ export default function PhotoboothPage() {
             <p className="text-xs text-[#24652A]/70 font-medium">Created with {selectedTemplate.name}</p>
           </div>
 
-          {/* Final Photostrip Image Preview: natural height, full display without internal scrollbar */}
           <div className="bg-[#FFFDF5] p-3 rounded-2xl border-3 border-[#24652A]/25 shadow-inner flex items-center justify-center">
             <img
               src={finalPhotostripUrl}
@@ -507,7 +294,7 @@ export default function PhotoboothPage() {
           <div className="flex flex-col gap-3 pt-2">
             <button
               onClick={() => {
-                stopCameraTracks();
+                stopCamera();
                 setStep('choose-template');
               }}
               className="w-full py-3.5 rounded-2xl bg-[#EAF5EA] hover:bg-[#A8D3A8]/40 text-[#24652A] font-extrabold text-sm transition-colors flex items-center justify-center gap-2 shadow-xs border border-[#A8D3A8]/50"
@@ -532,7 +319,7 @@ export default function PhotoboothPage() {
               <div className="text-center pt-1">
                 <Link
                   href="/memories"
-                  onClick={stopCameraTracks}
+                  onClick={stopCamera}
                   className="text-sm font-extrabold text-[#68B96B] hover:text-[#24652A] underline"
                 >
                   View in Memories →

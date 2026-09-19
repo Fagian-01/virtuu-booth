@@ -1,6 +1,6 @@
 export type StoredPhoto = {
   id: string;
-  type: 'photo' | 'photobooth' | 'virtual-booth';
+  type: 'photo' | 'photobooth' | 'daily' | 'virtual-booth';
   image: Blob | string;
   filter?: string;
   caption?: string;

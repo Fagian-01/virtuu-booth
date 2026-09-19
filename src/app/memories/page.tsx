@@ -6,7 +6,7 @@ import { Image as ImageIcon, Download, Share2, Trash2, ArrowLeft, Eye, Camera } 
 import { getPhotos, deletePhoto, StoredPhoto } from '@/lib/photoStorage';
 
 export default function MemoriesPage() {
-  const [activeTab, setActiveTab] = useState<'all' | 'photo' | 'photobooth' | 'virtual-booth'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'photo' | 'photobooth' | 'daily' | 'virtual-booth'>('all');
   const [memories, setMemories] = useState<StoredPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMemory, setSelectedMemory] = useState<StoredPhoto | null>(null);
@@ -79,6 +79,7 @@ export default function MemoriesPage() {
           { id: 'all', label: 'All Memories' },
           { id: 'photo', label: 'Photos' },
           { id: 'photobooth', label: 'Photobooth Strips' },
+          { id: 'daily', label: 'Daily Booth' },
           { id: 'virtual-booth', label: 'Virtual Booth' },
         ].map((tab) => (
           <button
@@ -113,7 +114,7 @@ export default function MemoriesPage() {
                 <div
                   onClick={() => setSelectedMemory(mem)}
                   className={`rounded-[2rem] overflow-hidden bg-emerald-50 relative cursor-pointer shadow-inner border border-emerald-100 ${
-                    mem.type === 'photobooth' ? 'aspect-[1/2]' : 'aspect-square'
+                    mem.type === 'photobooth' || mem.type === 'daily' ? 'aspect-[1/2]' : 'aspect-square'
                   }`}
                 >
                   <img

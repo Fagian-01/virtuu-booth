@@ -1,7 +1,7 @@
 export interface Memory {
   id: string;
   url: string;
-  type: 'photo' | 'photobooth' | 'virtual-booth';
+  type: 'photo' | 'photobooth' | 'daily' | 'virtual-booth';
   date: string;
   caption?: string;
   filters?: string[];
