@@ -1,11 +1,43 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Camera, Film, Users, Sparkles, ArrowRight, Heart, Smile, CalendarDays } from 'lucide-react';
-import { TODAY_DAILY_BOOTH, MOCK_MEMORIES } from '@/lib/mockData';
+import { Camera, Film, Users, Sparkles, ArrowRight, Image as ImageIcon } from 'lucide-react';
+import { TODAY_DAILY_BOOTH } from '@/lib/mockData';
+import { getPhotos, StoredPhoto } from '@/lib/photoStorage';
 
 export default function HomePage() {
+  const [recentMemories, setRecentMemories] = useState<StoredPhoto[]>([]);
+  const [isLoadingMemories, setIsLoadingMemories] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadRecent() {
+      try {
+        const stored = await getPhotos();
+        if (!mounted) return;
+        const sorted = [...(stored || [])]
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 5);
+        setRecentMemories(sorted);
+      } catch (err) {
+        console.error('Failed to load recent memories on home page:', err);
+        if (mounted) setRecentMemories([]);
+      } finally {
+        if (mounted) setIsLoadingMemories(false);
+      }
+    }
+    loadRecent();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const getImageSrc = (image: Blob | string): string => {
+    if (typeof image === 'string') return image;
+    return URL.createObjectURL(image);
+  };
+
   return (
     <div className="min-h-screen bg-[#FFFDF5] py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-12">
       {/* Header Greeting */}
@@ -166,28 +198,52 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
-          {MOCK_MEMORIES.slice(0, 5).map((mem, idx) => {
-            const rots = ['rotate-1', '-rotate-2', 'rotate-2', '-rotate-1', 'rotate-2'];
-            return (
-              <div
-                key={mem.id}
-                className={`bg-[#FFFDF5] p-3.5 rounded-3xl border-2 border-[#A8D3A8]/50 shadow-md transform ${rots[idx % rots.length]} hover:rotate-0 hover:scale-105 transition-all duration-300 space-y-2`}
-              >
-                <div className="aspect-square rounded-2xl overflow-hidden bg-emerald-50 relative shadow-inner">
-                  <img
-                    src={mem.url}
-                    alt={mem.caption || 'Memory'}
-                    className="w-full h-full object-cover"
-                  />
+        {isLoadingMemories ? (
+          <div className="text-center py-12 text-[#24652A] font-bold">loading recent memories...</div>
+        ) : recentMemories.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
+            {recentMemories.map((mem, idx) => {
+              const rots = ['rotate-1', '-rotate-2', 'rotate-2', '-rotate-1', 'rotate-2'];
+              const imgSrc = getImageSrc(mem.image);
+              const isTall = mem.type === 'photobooth' || mem.type === 'daily';
+
+              return (
+                <div
+                  key={mem.id}
+                  className={`bg-[#FFFDF5] p-3.5 rounded-3xl border-2 border-[#A8D3A8]/50 shadow-md transform ${rots[idx % rots.length]} hover:rotate-0 hover:scale-105 transition-all duration-300 space-y-2 flex flex-col justify-between`}
+                >
+                <div className={`rounded-2xl overflow-hidden bg-emerald-50 relative shadow-inner aspect-[4/3]`}>
+                    <img
+                      src={imgSrc}
+                      alt={mem.caption || 'Memory'}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <p className="text-xs text-[#24652A] truncate font-bold text-center">
+                    {mem.caption || 'Photo moment'}
+                  </p>
                 </div>
-                <p className="text-xs text-[#24652A] truncate font-bold text-center">
-                  {mem.caption || 'Photo moment'}
-                </p>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-16 bg-[#EAF5EA]/50 rounded-[3rem] border-3 border-dashed border-[#A8D3A8] space-y-4">
+            <ImageIcon className="w-12 h-12 text-[#A8D3A8] mx-auto animate-bounce" />
+            <h4 className="text-lg font-black text-[#185522]">no memories yet ✨</h4>
+            <p className="text-xs text-[#24652A]/80 font-medium max-w-xs mx-auto">
+              Your recent moments will appear here once you take your first photo!
+            </p>
+            <div className="pt-2">
+              <Link
+                href="/home/photo"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#68B96B] hover:bg-[#24652A] text-white font-black text-xs shadow-lg transition-all hover:scale-105"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>take a photo</span>
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

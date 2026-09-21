@@ -25,6 +25,25 @@ body {
 }
 
 /* Custom scrollbar and utilities */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #EAF5EA;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #A8D3A8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #68B96B;
+}
+
 ::selection {
   background-color: var(--sage);
   color: var(--forest);

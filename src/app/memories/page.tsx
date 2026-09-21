@@ -11,6 +11,18 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(true);
   const [selectedMemory, setSelectedMemory] = useState<StoredPhoto | null>(null);
 
+  // Prevent background body scroll when modal is open
+  useEffect(() => {
+    if (selectedMemory) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedMemory]);
+
   // Load photos from IndexedDB on mount
   useEffect(() => {
     async function loadStoredMemories() {
@@ -96,11 +108,11 @@ export default function MemoriesPage() {
         ))}
       </div>
 
-      {/* Memories Grid */}
+      {/* Memories Gallery - True Masonry / Waterfall layout using CSS columns */}
       {loading ? (
         <div className="text-center py-20 text-[#24652A] font-bold">Loading memories from browser storage...</div>
       ) : filteredMemories.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+        <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 gap-8 [column-fill:_balance]">
           {filteredMemories.map((mem, idx) => {
             const rot = rotations[idx % rotations.length];
             const imgSrc = getImageSrc(mem.image);
@@ -109,12 +121,12 @@ export default function MemoriesPage() {
             return (
               <div
                 key={mem.id}
-                className={`bg-[#FFFDF5] p-4 rounded-[2.5rem] border-2 border-[#A8D3A8]/60 shadow-lg hover:shadow-xl transform ${rot} hover:rotate-0 hover:scale-105 transition-all duration-300 space-y-3 flex flex-col justify-between group`}
+                className={`mb-8 break-inside-avoid bg-[#FFFDF5] p-4 rounded-[2.5rem] border-2 border-[#A8D3A8]/60 shadow-lg hover:shadow-xl transform ${rot} hover:rotate-0 hover:scale-105 transition-all duration-300 space-y-3 flex flex-col justify-between group`}
               >
                 <div
                   onClick={() => setSelectedMemory(mem)}
                   className={`rounded-[2rem] overflow-hidden bg-emerald-50 relative cursor-pointer shadow-inner border border-emerald-100 ${
-                    mem.type === 'photobooth' || mem.type === 'daily' ? 'aspect-[1/2]' : 'aspect-square'
+                    mem.type === 'photobooth' || mem.type === 'daily' ? 'aspect-[1/2]' : 'aspect-[4/3]'
                   }`}
                 >
                   <img
@@ -182,9 +194,10 @@ export default function MemoriesPage() {
 
       {/* View Modal with natural vertical scrolling and unclipped image */}
       {selectedMemory && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#FFFDF5] max-w-md w-full my-8 p-6 sm:p-8 rounded-[3rem] shadow-2xl space-y-6 border-4 border-[#A8D3A8] animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between sticky top-0 bg-[#FFFDF5] py-2 z-10 border-b border-[#A8D3A8]/30">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#FFFDF5] max-w-md w-full rounded-[2.5rem] sm:rounded-[3rem] shadow-2xl border-4 border-[#A8D3A8] animate-in fade-in zoom-in duration-200 max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Fixed Header */}
+            <div className="flex items-center justify-between bg-[#FFFDF5] p-6 sm:px-8 sm:pt-8 sm:pb-4 border-b border-[#A8D3A8]/30 shrink-0">
               <h3 className="font-black text-xl text-[#185522] truncate pr-4">{selectedMemory.caption}</h3>
               <button
                 onClick={() => setSelectedMemory(null)}
@@ -194,18 +207,20 @@ export default function MemoriesPage() {
               </button>
             </div>
             
-            {/* Image container without aspect-square/fixed height so tall photostrips display fully */}
-            <div className="w-full rounded-[2rem] overflow-hidden bg-emerald-50 shadow-lg border-2 border-emerald-100 flex items-center justify-center p-2">
-              <img
-                src={getImageSrc(selectedMemory.image)}
-                alt="Memory Detail"
-                className="w-full h-auto object-contain rounded-xl"
-              />
-            </div>
+            {/* Scrollable Body - ONLY SCROLL AREA */}
+            <div className="p-6 sm:px-8 sm:pb-8 overflow-y-auto space-y-6 flex-1">
+              <div className="w-full rounded-[2rem] overflow-hidden bg-emerald-50 shadow-lg border-2 border-emerald-100 flex items-center justify-center p-2">
+                <img
+                  src={getImageSrc(selectedMemory.image)}
+                  alt="Memory Detail"
+                  className="w-full h-auto object-contain rounded-xl"
+                />
+              </div>
 
-            <div className="flex items-center justify-between text-xs font-bold text-[#24652A]/70 pt-2 border-t border-[#A8D3A8]/30">
-              <span>Saved on {new Date(selectedMemory.createdAt).toLocaleDateString()}</span>
-              <span className="capitalize bg-[#EAF5EA] px-3 py-1 rounded-full text-[#24652A] font-black">{selectedMemory.type}</span>
+              <div className="flex items-center justify-between text-xs font-bold text-[#24652A]/70 pt-2 border-t border-[#A8D3A8]/30">
+                <span>Saved on {new Date(selectedMemory.createdAt).toLocaleDateString()}</span>
+                <span className="capitalize bg-[#EAF5EA] px-3 py-1 rounded-full text-[#24652A] font-black">{selectedMemory.type}</span>
+              </div>
             </div>
           </div>
         </div>
